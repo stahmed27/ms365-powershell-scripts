@@ -1,0 +1,82 @@
+#Step 1: Create .csv, .tsv, or pipe-seperated file containing the data to match. 
+#File can have up to 32 columns, up to 5 of which can be primary
+
+#Step 2: Create and upload EDM schema
+#Step 2a: Create a schema that corresponds to the data table. 
+#Schemas should also be provided with a name, description, and whether to ignore punctuation or delimiters inside all the entries 
+#Schemas also have a list of fields, each corresponding to a column in the table.
+#Fields have names (which match the column names in the table) and toggles for whether the field is primary, whether it is case-sensitive, or if any delimiters should be ignored
+    
+#Basic schema field creation XML
+<Field name="FieldName" searchable="true/false" caseInsensitive="true/false" ignoredDelimiters="delimiter characters" />
+
+#Full example schema creation XML
+<EdmSchema xmlns="http://schemas.microsoft.com/office/2018/edm">
+    <DataStore name="PatientRecords" description="Schema for patient records" version="1">
+          <Field name="PatientID" searchable="true" caseInsensitive="true" ignoredDelimiters="-,/,*,#,^" />
+          <Field name="MRN" searchable="true" />
+          <Field name="FirstName" />
+          <Field name="LastName" />
+          <Field name="SSN" searchable="true" />
+          <Field name="Phone" searchable="true" />
+          <Field name="DOB" searchable="true" />
+          <Field name="Gender" />
+          <Field name="Address" />
+    </DataStore>
+</EdmSchema>
+
+#Step 2b: If the schema is created using the wizard, it must be exported to XML
+#Export EDM schema PowerShell command
+$Schema = Get-DlpEdmSchema -Identity "[your EDM Schema name]"
+Set-Content -Path ".\Schemafile.xml" -Value $Schema.EdmSchemaXML
+
+#Step 2c: The XML schema file must then be uploaded to the cloud
+#XML upload command
+New-DlpEdmSchema -FileData ([System.IO.File]::ReadAllBytes('.\\Schemafile.xml')) -Confirm:$true
+
+#Step 3: Hash and upload source file
+#Best practice is to keep the unhashed source file on a secure, unconnected machine, then transfer the hash and salt to a cloud-connected machine. This step can, however, be completed on one computer
+
+#Step 3a: Ensure source table is formatted correctly
+#Verification command
+EdmUploadAgent.exe /ValidateData /DataFile [data file] /Schema [schema file]
+#If the tool indicates a mismatch in number of columns it might be due to the presence of commas or quote characters within values in the table which are being confused with column delimiters
+
+#Step 3b: Hash and upload data table
+#Connected computer requires a user that is a member of the EDM_DataUploaders security group (which may need to be created)
+
+#One-computer method
+#Step 3b1: Create a working directory on the computer for the EDMUploadAgent program
+#Step 3b2: Install the appropriate EDMUploadAgent
+#Step 3b3: Run and authorize the EDMUploadAgent
+#Authorization command
+EdmUploadAgent.exe /Authorize
+#Step 3b4: If the schema was created using the wizard, it must be downloaded
+#Download command
+EdmUploadAgent.exe /SaveSchema /DataStoreName [schema name] /OutputDir [path to output folder]
+#Step 3b5: Hash and upload the data
+#Hash and upload command (column seperator defaults to comma). Allowed bad lines allows upload of partially malformed file
+EdmUploadAgent.exe /UploadData /DataStoreName [DS Name] /DataFile [data file] /HashLocation [hash file location] /Schema [Schema file] /ColumnSeparator ["{Tab}"|"|"] /AllowedBadLinesPercentage [value]
+#Step 3b6: Monitor progress (Starts as ProcessingInProgress, wait for Completed)
+#Progress command
+EdmUploadAgent.exe /GetSession /DataStoreName \<DataStoreName\>
+
+#Two-computer method
+#Step 3b1: If the schema was created using the wizard, it must be downloaded
+#Download command
+EdmUploadAgent.exe /SaveSchema /DataStoreName [schema name] /OutputDir [path to output folder]
+#Step 3b2: Hash the data
+#Hash command (outputs hash and salt files)
+EdmUploadAgent.exe /CreateHash /DataFile [data file] /HashLocation [hash file location] /Schema [Schema file] /AllowedBadLinesPercentage [value]
+#Step 3b3: Securely transfer these two files onto a connected computer
+#Step 3b4: Create a working directory on the connected computer for the EDMUploadAgent program
+#Step 3b5: Install the appropriate EDMUploadAgent
+#Step 3b6: Run and authorize the EDMUploadAgent
+#Authorization command
+EdmUploadAgent.exe /Authorize
+#Step 3b7: Upload hashed data
+#Hash command (column seperator defaults to comma). Allowed bad lines allows upload of partially malformed file
+EdmUploadAgent.exe /UploadData /DataStoreName [DS Name] /DataFile [data file] /HashLocation [hash file location] /Schema [Schema file] /ColumnSeparator ["{Tab}"|"|"] /AllowedBadLinesPercentage [value]
+#Step 3b8: Check data stores to ensure upload
+#Data stores command
+EdmUploadAgent.exe /GetDataStore
